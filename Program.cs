@@ -338,29 +338,35 @@ WHERE m.meta_name = 'ADUsername' AND LTRIM(RTRIM(ISNULL(m.meta_value,''))) <> ''
 AND NOT EXISTS (SELECT 1 FROM [dbo].[MADB_Meta] g WHERE g.[KEY] = m.[KEY] AND g.meta_name = 'ADObjectGuid' AND LTRIM(RTRIM(ISNULL(g.meta_value,''))) <> '')";
             string sqlMerge = "MERGE [dbo].[MADB_Meta] AS t USING (SELECT @Key AS [KEY], @meta_name AS meta_name, @meta_value AS meta_value) AS s ON t.[KEY] = s.[KEY] AND t.meta_name = s.meta_name WHEN MATCHED THEN UPDATE SET meta_value = s.meta_value WHEN NOT MATCHED THEN INSERT ([KEY], meta_name, meta_value) VALUES (s.[KEY], s.meta_name, s.meta_value);";
 
+            var toUpdate = new List<KeyUsernameRow>();
             using (SqlConnection conn = new SqlConnection(workConnStr))
             {
                 conn.Open();
                 using (SqlCommand cmd = new SqlCommand(sqlSelect, conn))
-                using (SqlDataReader r = cmd.ExecuteReader())
                 {
-                    while (r.Read())
+                    using (SqlDataReader r = cmd.ExecuteReader())
                     {
-                        string key = r.IsDBNull(0) ? null : r.GetString(0);
-                        string adUsername = r.IsDBNull(1) ? null : r.GetString(1);
-                        if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(adUsername))
-                            continue;
-                        AdEintrag eintrag;
-                        if (!usernameToEintrag.TryGetValue(adUsername, out eintrag))
-                            continue;
-
-                        using (SqlCommand mergeCmd = new SqlCommand(sqlMerge, conn))
+                        while (r.Read())
                         {
-                            mergeCmd.Parameters.AddWithValue("@Key", key);
-                            mergeCmd.Parameters.AddWithValue("@meta_name", "ADObjectGuid");
-                            mergeCmd.Parameters.AddWithValue("@meta_value", eintrag.AdObjectGuid.ToString());
-                            mergeCmd.ExecuteNonQuery();
+                            string key = r.IsDBNull(0) ? null : r.GetString(0);
+                            string adUsername = r.IsDBNull(1) ? null : r.GetString(1);
+                            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(adUsername))
+                                continue;
+                            AdEintrag eintrag;
+                            if (!usernameToEintrag.TryGetValue(adUsername, out eintrag))
+                                continue;
+                            toUpdate.Add(new KeyUsernameRow { Key = key, AdUsername = adUsername, Eintrag = eintrag });
                         }
+                    }
+                }
+                foreach (KeyUsernameRow row in toUpdate)
+                {
+                    using (SqlCommand mergeCmd = new SqlCommand(sqlMerge, conn))
+                    {
+                        mergeCmd.Parameters.AddWithValue("@Key", row.Key);
+                        mergeCmd.Parameters.AddWithValue("@meta_name", "ADObjectGuid");
+                        mergeCmd.Parameters.AddWithValue("@meta_value", row.Eintrag.AdObjectGuid.ToString());
+                        mergeCmd.ExecuteNonQuery();
                     }
                 }
             }
@@ -379,42 +385,61 @@ AND NOT EXISTS (SELECT 1 FROM [dbo].[MADB_Meta] g WHERE g.[KEY] = m.[KEY] AND g.
             string sqlSelect = "SELECT [KEY], LTRIM(RTRIM(ISNULL(meta_value,''))) AS meta_value FROM [dbo].[MADB_Meta] WHERE meta_name = 'ADObjectGuid' AND LTRIM(RTRIM(ISNULL(meta_value,''))) <> ''";
             string sqlMerge = "MERGE [dbo].[MADB_Meta] AS t USING (SELECT @Key AS [KEY], @meta_name AS meta_name, @meta_value AS meta_value) AS s ON t.[KEY] = s.[KEY] AND t.meta_name = s.meta_name WHEN MATCHED THEN UPDATE SET meta_value = s.meta_value WHEN NOT MATCHED THEN INSERT ([KEY], meta_name, meta_value) VALUES (s.[KEY], s.meta_name, s.meta_value);";
 
+            var toSync = new List<KeyGuidRow>();
             using (SqlConnection conn = new SqlConnection(workConnStr))
             {
                 conn.Open();
                 using (SqlCommand cmd = new SqlCommand(sqlSelect, conn))
-                using (SqlDataReader r = cmd.ExecuteReader())
                 {
-                    while (r.Read())
+                    using (SqlDataReader r = cmd.ExecuteReader())
                     {
-                        string key = r.IsDBNull(0) ? null : r.GetString(0);
-                        string guidStr = r.IsDBNull(1) ? null : r.GetString(1);
-                        if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(guidStr))
-                            continue;
-                        Guid g;
-                        if (!Guid.TryParse(guidStr, out g))
-                            continue;
-                        AdEintrag eintrag;
-                        if (!guidToEintrag.TryGetValue(g, out eintrag))
-                            continue;
-
-                        using (SqlCommand mergeCmd = new SqlCommand(sqlMerge, conn))
+                        while (r.Read())
                         {
-                            mergeCmd.Parameters.AddWithValue("@Key", key);
-                            mergeCmd.Parameters.AddWithValue("@meta_name", "ADUsername");
-                            mergeCmd.Parameters.AddWithValue("@meta_value", eintrag.Username ?? "");
-                            mergeCmd.ExecuteNonQuery();
-                        }
-                        using (SqlCommand mergeCmd = new SqlCommand(sqlMerge, conn))
-                        {
-                            mergeCmd.Parameters.AddWithValue("@Key", key);
-                            mergeCmd.Parameters.AddWithValue("@meta_name", "eMail");
-                            mergeCmd.Parameters.AddWithValue("@meta_value", eintrag.Mail ?? "");
-                            mergeCmd.ExecuteNonQuery();
+                            string key = r.IsDBNull(0) ? null : r.GetString(0);
+                            string guidStr = r.IsDBNull(1) ? null : r.GetString(1);
+                            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(guidStr))
+                                continue;
+                            Guid g;
+                            if (!Guid.TryParse(guidStr, out g))
+                                continue;
+                            AdEintrag eintrag;
+                            if (!guidToEintrag.TryGetValue(g, out eintrag))
+                                continue;
+                            toSync.Add(new KeyGuidRow { Key = key, Eintrag = eintrag });
                         }
                     }
                 }
+                foreach (KeyGuidRow row in toSync)
+                {
+                    using (SqlCommand mergeCmd = new SqlCommand(sqlMerge, conn))
+                    {
+                        mergeCmd.Parameters.AddWithValue("@Key", row.Key);
+                        mergeCmd.Parameters.AddWithValue("@meta_name", "ADUsername");
+                        mergeCmd.Parameters.AddWithValue("@meta_value", row.Eintrag.Username ?? "");
+                        mergeCmd.ExecuteNonQuery();
+                    }
+                    using (SqlCommand mergeCmd = new SqlCommand(sqlMerge, conn))
+                    {
+                        mergeCmd.Parameters.AddWithValue("@Key", row.Key);
+                        mergeCmd.Parameters.AddWithValue("@meta_name", "eMail");
+                        mergeCmd.Parameters.AddWithValue("@meta_value", row.Eintrag.Mail ?? "");
+                        mergeCmd.ExecuteNonQuery();
+                    }
+                }
             }
+        }
+
+        private class KeyUsernameRow
+        {
+            public string Key { get; set; }
+            public string AdUsername { get; set; }
+            public AdEintrag Eintrag { get; set; }
+        }
+
+        private class KeyGuidRow
+        {
+            public string Key { get; set; }
+            public AdEintrag Eintrag { get; set; }
         }
 
         private class AdEintrag
