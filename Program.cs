@@ -137,7 +137,6 @@ namespace AdAbzugJob
 
         private static void SnapshotSpeichern(string connStr, DateTime abzugZeitpunkt, List<AdEintrag> eintraege)
         {
-            string sql = "INSERT INTO [dbo].[azm_tool_ad_abzug_eintraege] ([AbzugZeitpunkt],[AdObjectGuid],[Username],[Mail],[NameVorname],[Firma],[Abteilung]) VALUES (@AbzugZeitpunkt,@AdObjectGuid,@Username,@Mail,@NameVorname,@Firma,@Abteilung)";
             using (SqlConnection conn = new SqlConnection(connStr))
             {
                 conn.Open();
@@ -145,6 +144,15 @@ namespace AdAbzugJob
                 {
                     try
                     {
+                        // Alte Abzüge löschen, nur den letzten Snapshot behalten (für Abgleich „vorheriger Lauf“)
+                        string sqlDelete = @"DELETE FROM [dbo].[azm_tool_ad_abzug_eintraege]
+WHERE [AbzugZeitpunkt] NOT IN (SELECT TOP 1 [AbzugZeitpunkt] FROM [dbo].[azm_tool_ad_abzug_eintraege] ORDER BY [AbzugZeitpunkt] DESC)";
+                        using (SqlCommand delCmd = new SqlCommand(sqlDelete, conn, trans))
+                        {
+                            delCmd.ExecuteNonQuery();
+                        }
+
+                        string sql = "INSERT INTO [dbo].[azm_tool_ad_abzug_eintraege] ([AbzugZeitpunkt],[AdObjectGuid],[Username],[Mail],[NameVorname],[Firma],[Abteilung]) VALUES (@AbzugZeitpunkt,@AdObjectGuid,@Username,@Mail,@NameVorname,@Firma,@Abteilung)";
                         using (SqlCommand cmd = new SqlCommand(sql, conn, trans))
                         {
                             cmd.Parameters.Add("@AbzugZeitpunkt", System.Data.SqlDbType.DateTime2);
